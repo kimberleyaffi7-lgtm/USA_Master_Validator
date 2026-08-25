@@ -1,50 +1,25 @@
-# Security Notes
+# Security Notes — USA Validator v27
 
-## Data handling
+## Sensitive data
+Uploaded files remain in the browser. Do not send raw SSN, driver's-license, routing or bank-account values to the Brain/RAG layer. Use sanitized derived validation facts instead.
 
-Uploaded files are processed in the browser. They are not sent to the Render server as file uploads.
-
-This is especially important because the original dashboard supports columns that may contain sensitive identifiers such as SSN, driver's license, routing and bank-account values. fileciteturn0file0L82-L93
+## Paid-only validation
+Phone area-code consistency, SSN/DL format checks, and bank/routing format checks are paid-only. The UI disables them for Anonymous/Free accounts. The premium validation engine is not included in the Vite frontend bundle; Render serves it only through `/api/premium-engine` after a server-side Supabase plan check. The runtime therefore fails closed for non-paid accounts.
 
 ## Authentication
+Supabase Magic Link authentication is used. Frontend uses only the URL and anon key. The Supabase service-role key is server-only.
 
-Google login is provided through Supabase Auth.
-
-The frontend uses only the Supabase URL and anon key.
-
-Never expose:
-- Supabase service_role key
-- Stripe secret key
-- OAuth client secret
-- database password
+## Brain providers
+The API MASTERLIST supplied for this build contains: LimitDeck (`https://limitdeckai.ru/v1`), NEXUS API (`https://api.nexus-hub.ru/v1`), and Router Cheap (`https://router.cheap/v1`). These are configured as server-side Brain provider catalog entries. Provider API keys are not in source code or VITE variables; store them in Supabase's `brain_providers.api_key_ciphertext` after server-side encryption.
 
 ## Authorization
-
-Paid plans must be assigned on the server/database.
-
-Never trust:
-- frontend plan values
-- localStorage plan values
-- query-string plan values
-- hidden HTML controls
+Never trust plan values from the browser. Paid plan assignment must be made by your billing/webhook process in `public.profiles.plan`.
 
 ## Anonymous quota
+Anonymous 50/72h usage is a convenience anti-abuse boundary only because there is no trusted identity.
 
-Anonymous quota is intentionally a convenience anti-abuse limit, not a security boundary.
+## Brain/RAG safety
+The current Brain endpoint is deliberately disabled for actual provider calls until credentials and retrieval are configured. This prevents accidental API-key leakage or sending sensitive source rows to external models.
 
-## Browser processing
-
-Client-side processing reduces server-side exposure but does not make the user's own browser a trusted environment. Do not claim that the app provides regulatory compliance merely because files are processed locally.
-
-## Production hardening
-
-Before commercial launch:
-- Add a custom domain.
-- Configure strict Content Security Policy.
-- Add rate limiting.
-- Add abuse detection.
-- Add billing webhook signature verification.
-- Add audit logs without raw sensitive values.
-- Add automated tests.
-- Add dependency scanning.
-- Review data-retention and privacy requirements.
+## Provider key setup
+Use `scripts/set-brain-provider-key.mjs` from a trusted server/admin environment. The key is encrypted with `BRAIN_CREDENTIAL_KEY` before it is written to Supabase. Keep `BRAIN_CREDENTIAL_KEY` and `SUPABASE_SERVICE_ROLE_KEY` only in Render/server secrets.

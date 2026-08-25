@@ -13,9 +13,15 @@ services:
         sync: false
       - key: SUPABASE_ANON_KEY
         sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
       - key: VITE_SUPABASE_URL
         sync: false
       - key: VITE_SUPABASE_ANON_KEY
+        sync: false
+      - key: VITE_APP_URL
+        sync: false
+      - key: BRAIN_CREDENTIAL_KEY
         sync: false
       - key: MAX_FILE_MB
         value: "25"

@@ -1,118 +1,44 @@
-# Deployment — Email Magic Link
+# Render Deployment — v27
 
 ## 1. Supabase
+1. Create/open the Supabase project.
+2. Run `supabase-schema.sql` in SQL Editor.
+3. Enable Authentication → Email (Magic Link).
+4. In Authentication → URL Configuration, set the Render URL as Site URL.
+5. Add `http://localhost:3000/**` and `https://YOUR-APP.onrender.com/**` to Redirect URLs.
+6. Copy Project URL and anon/public key.
+7. Copy the service-role key only into Render server environment variables. Never put it in GitHub or any `VITE_*` variable.
 
-### Authentication
-
-Go to:
-
-Authentication → Sign In / Providers → Email
-
-Enable email/passwordless authentication.
-
-This app uses Magic Links.
-
-### URL Configuration
-
-Go to:
-
-Authentication → URL Configuration
-
-Set:
-
-Site URL:
-`https://YOUR-RENDER-APP.onrender.com`
-
-Add:
-
-`https://YOUR-RENDER-APP.onrender.com/**`
-
-Replace the hostname with your actual Render hostname.
-
-### Database
-
-Open SQL Editor and run:
-
-`supabase-schema.sql`
-
-## 2. Email delivery
-
-For initial testing, Supabase's default email service may work only for authorized/team addresses and is heavily rate limited.
-
-For a public app, configure a custom SMTP provider:
-
-Authentication → Emails → SMTP Settings
-
-You will need:
-- SMTP host
-- SMTP port
-- SMTP username
-- SMTP password
-- sender email
-- sender name
-
-These settings are stored in Supabase Auth, not in your frontend source code.
+## 2. GitHub
+Upload the project files. Do not upload `.env`.
 
 ## 3. Render
+Root Directory: blank.
+Build: `npm install && npm run build`
+Start: `npm start`
 
-Root Directory:
-leave blank
-
-Build Command:
-`npm install && npm run build`
-
-Start Command:
-`npm start`
-
-Environment Variables:
-
+Environment variables:
 `SUPABASE_URL`
 `SUPABASE_ANON_KEY`
+`SUPABASE_SERVICE_ROLE_KEY`
 `VITE_SUPABASE_URL`
 `VITE_SUPABASE_ANON_KEY`
+`VITE_APP_URL=https://YOUR-APP.onrender.com`
+`BRAIN_CREDENTIAL_KEY`
+`MAX_FILE_MB=25`
 
-Use your Supabase Project URL and public Publishable/anon-compatible key.
+## 4. Paid plan assignment
+Never let the frontend select Supreme/Premier. Your payment webhook should update `public.profiles.plan` to `supreme` or `premier`.
 
-Do NOT add:
-`SUPABASE_SERVICE_ROLE_KEY`
-unless a future backend feature explicitly requires it.
+## 5. Brain providers
+The provider catalog is preloaded from API MASTERLIST.xlsx. Before enabling live Brain calls, store each provider API key in Supabase `brain_providers.api_key_ciphertext` using a server-side encryption workflow. Do not put provider keys in `VITE_*` variables.
 
-Do NOT put any secret in a `VITE_*` variable.
-
-## 4. Test
-
-After deployment:
-
-1. Open the Render URL.
-2. Confirm Anonymous appears.
-3. Enter your email.
-4. Click "Email me a sign-in link".
-5. Open the email.
-6. Click the Magic Link.
-7. Confirm the dashboard returns authenticated.
-8. Confirm Plan = free.
-9. Confirm Email credits = 200.
-10. Upload a small test CSV.
-11. Validate it.
-12. Sign out.
-13. Confirm Anonymous returns with 50 credits.
-
-## 5. Common errors
-
-### "Email address not authorized"
-
-You are using Supabase's default SMTP service. Configure custom SMTP for public addresses.
-
-### "Redirect URL not allowed"
-
-Add the exact Render URL under:
-
-Authentication → URL Configuration → Redirect URLs
-
-### Magic link arrives but dashboard does not authenticate
-
-Make sure the Render URL is the same origin being passed as `emailRedirectTo`.
-
-### User authenticates but quota is wrong
-
-Run `supabase-schema.sql` again and confirm the `profiles` trigger and RLS policies exist.
+## 6. First tests
+- Anonymous: confirm 50/72h quota.
+- Magic Link: confirm authentication and 200/24h quota.
+- Free: confirm phone area-code, SSN/DL and bank/routing controls are disabled.
+- Supreme/Premier: confirm those controls unlock.
+- As a Free user, request `/api/premium-engine` with your access token and confirm it returns HTTP 403.
+- As a paid user, confirm the endpoint returns the premium engine and validation runs.
+- Confirm `/api/me` reports the server-side plan.
+- Confirm `/api/brain/status` is 403/disabled for Free and enabled for paid accounts.

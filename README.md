@@ -1,114 +1,45 @@
-# USA Validator — Render + Supabase Email Magic Link
+# USA Validator — Render v27
 
-This version uses **Supabase Email/Magic Link authentication** instead of Google OAuth.
+A simple Render-ready USA data validation dashboard with Supabase Magic Link authentication, plan-based quotas, paid-only premium validation, and a server-side Brain/RAG gateway foundation.
 
-That means the application no longer needs:
-- Google Cloud
-- Google OAuth Client ID
-- Google OAuth Client Secret
-- Google Cloud billing/payment setup
+## Plans
+- Anonymous: 50 emails / rolling 72 hours
+- Free authenticated: 200 emails / rolling 24 hours
+- Supreme: 25,000 email credits / month
+- Premier: 50,000 email credits / month
 
-## Authentication tiers
+## Paid-only features
+Only Supreme and Premier can use:
+- Phone area-code consistency checks
+- SSN / driver's-license format checks
+- Bank / routing (ABA) format checks
 
-- Anonymous: 50 emails in a rolling 72-hour window.
-- Authenticated Free: 200 emails in a rolling 24-hour window.
-- Supreme: 25,000 email credits per month.
-- Premier: 50,000 email credits per month.
+Free users can still use the core email, ZIP/geographic and disposable-email validation features.
 
-Authenticated and paid quota enforcement is server/database-side. Anonymous quota is a browser-level anti-abuse limit.
+## Brain modules
+The supplied API MASTERLIST.xlsx specifies these Brain provider endpoints:
+1. LimitDeck — https://limitdeckai.ru/v1
+2. NEXUS API — https://api.nexus-hub.ru/v1
+3. Router Cheap — https://router.cheap/v1
 
-## Supabase setup
+Provider URLs are server-side catalog metadata. API keys must be stored in Supabase, never in frontend code. The v27 gateway is intentionally safe until provider credentials are configured. The uploaded API master list contains provider names/base URLs but no model names, so configure a supported model per provider before live Brain calls.
 
-### 1. Enable Email authentication
+## Deploy to Render
+Root Directory: leave blank.
+Build Command: `npm install && npm run build`
+Start Command: `npm start`
 
-In Supabase:
+Required Render variables:
+- SUPABASE_URL
+- SUPABASE_ANON_KEY
+- SUPABASE_SERVICE_ROLE_KEY
+- VITE_SUPABASE_URL
+- VITE_SUPABASE_ANON_KEY
+- VITE_APP_URL
+- BRAIN_CREDENTIAL_KEY
+- MAX_FILE_MB=25
 
-Authentication → Sign In / Providers → Email
+Run `supabase-schema.sql` once in Supabase SQL Editor. Enable Supabase Email/OTP authentication and add both local and Render redirect URLs.
 
-Enable email/passwordless sign-in.
-
-This application uses the passwordless Magic Link flow, not passwords.
-
-### 2. Configure URL
-
-In Supabase:
-
-Authentication → URL Configuration
-
-Set:
-
-Site URL:
-`https://YOUR-RENDER-APP.onrender.com`
-
-Add the Render URL to the allowed Redirect URLs, for example:
-
-`https://YOUR-RENDER-APP.onrender.com/**`
-
-The application calls `signInWithOtp()` with `emailRedirectTo: window.location.origin`.
-
-### 3. Database
-
-Run `supabase-schema.sql` in Supabase SQL Editor.
-
-The trigger creates a `profiles` row when a new Auth user is created.
-
-## Email delivery warning
-
-Supabase's built-in/default SMTP is intended for testing and has restrictions. It is not suitable for a public production application. Supabase currently documents a limit of about 2 auth emails/hour on the default service and says that, without custom SMTP, delivery is restricted to addresses in the project's organization.
-
-For public users, configure a custom SMTP provider in:
-
-Authentication → Emails → SMTP Settings
-
-Do not put SMTP credentials in the Render frontend environment variables. SMTP credentials belong in Supabase Auth's SMTP configuration.
-
-## Render environment variables
-
-Set:
-
-`SUPABASE_URL`
-`SUPABASE_ANON_KEY`
-`VITE_SUPABASE_URL`
-`VITE_SUPABASE_ANON_KEY`
-
-The browser variables use the Supabase Publishable/legacy anon-compatible public key. Never expose a Supabase secret/service-role key in `VITE_*`.
-
-## Render commands
-
-Root Directory: leave blank
-
-Build:
-`npm install && npm run build`
-
-Start:
-`npm start`
-
-## User flow
-
-1. Visitor opens the dashboard.
-2. Visitor can process up to 50 emails in 72 hours anonymously.
-3. Visitor enters their email.
-4. Supabase sends a Magic Link.
-5. User clicks the link.
-6. Supabase returns the authenticated session to the Render app.
-7. The app shows the authenticated Free quota of 200 emails / 24 hours.
-8. Supreme/Premier users are enforced by the database credit function.
-
-## Security
-
-Uploaded CSV/XLS/XLSX files are processed in the browser and are not uploaded to Render or Supabase.
-
-This is particularly important because the validator can process sensitive columns such as SSN, driver's license, routing and bank-account fields.
-
-Do not add server-side storage for these raw values without a separate security/compliance design.
-
-## Production recommendations
-
-- Configure custom SMTP before public launch.
-- Use a custom domain for the application.
-- Enable Supabase email confirmations where appropriate.
-- Keep RLS enabled.
-- Keep paid plan assignment server-side.
-- Never trust a frontend plan selector.
-- Add CAPTCHA/rate limiting if abuse becomes a concern.
-- Review privacy and regulatory requirements for any sensitive data users process.
+## Important data design
+CSV/XLS/XLSX files are processed locally in the browser. The server receives only authentication/quota requests. Do not change this architecture casually because the validator can handle sensitive fields.
