@@ -41,8 +41,12 @@ document.querySelector("#app").innerHTML = `
     </div>
     <div class="account-box">
       <div id="accountStatus">Anonymous</div>
-      <button id="loginBtn" class="btn primary">Continue with Google</button>
+      <div id="magicLogin" class="magic-login">
+        <input id="emailInput" type="email" autocomplete="email" placeholder="Enter your email">
+        <button id="loginBtn" class="btn primary">Email me a sign-in link</button>
+      </div>
       <button id="logoutBtn" class="btn secondary hidden">Sign out</button>
+      <div id="loginMessage" class="muted small"></div>
     </div>
   </header>
 
@@ -58,6 +62,7 @@ document.querySelector("#app").innerHTML = `
       <div class="upload-icon">↑</div>
       <h2>Upload CSV or Excel</h2>
       <p>Files are processed locally in your browser. They are not uploaded to the server.</p>
+      <p class="small muted">Sign in by email for the 200-email Free tier.</p>
       <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" hidden>
       <button id="chooseBtn" class="btn primary">Choose File</button>
       <div id="fileInfo" class="muted small"></div>
@@ -104,7 +109,7 @@ document.querySelector("#app").innerHTML = `
     <h2>Plans</h2>
     <div class="grid plan-grid">
       <div><b>Anonymous</b><span>50 emails / rolling 72 hours</span></div>
-      <div><b>Free + Google</b><span>200 emails / rolling 24 hours</span></div>
+      <div><b>Free + Email</b><span>200 emails / rolling 24 hours</span></div>
       <div><b>Supreme</b><span>25,000 email credits / month</span></div>
       <div><b>Premier</b><span>50,000 email credits / month</span></div>
     </div>
@@ -121,7 +126,7 @@ function setAccount(account) {
   state.account = account;
   const authenticated = !!account?.authenticated;
   $("#accountStatus").textContent = authenticated
-    ? (account.user?.name || account.user?.email || "Google user")
+    ? (account.user?.name || account.user?.email || "Email user")
     : "Anonymous";
   $("#loginBtn").classList.toggle("hidden", authenticated);
   $("#logoutBtn").classList.toggle("hidden", !authenticated);
@@ -153,20 +158,56 @@ if (supabase) {
 } else {
   setAccount({ authenticated: false, plan: "anonymous", quota: { limit: 50, used: 0, remaining: 50, windowHours: 72 } });
   $("#loginBtn").disabled = true;
-  $("#loginBtn").title = "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable Google login.";
+  $("#emailInput").disabled = true;
+  $("#loginBtn").title = "Add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY to enable email login.";
 }
 
 $("#loginBtn").onclick = async () => {
-  if (!supabase) return alert("Google login is not configured yet. Add the Supabase browser variables in Render.");
-  const { error } = await supabase.auth.signInWithOAuth({
-    provider: "google",
-    options: { redirectTo: window.location.origin }
+  if (!supabase) return alert("Email login is not configured yet. Add the Supabase browser variables in Render.");
+
+  const email = $("#emailInput").value.trim().toLowerCase();
+  if (!/^\S+@\S+\.\S+$/.test(email)) {
+    $("#loginMessage").textContent = "Enter a valid email address.";
+    return;
+  }
+
+  const lastSent = Number(sessionStorage.getItem("magic_link_sent_at") || 0);
+  const secondsSince = Math.floor((Date.now() - lastSent) / 1000);
+  if (secondsSince < 60) {
+    $("#loginMessage").textContent = `Please wait ${60 - secondsSince}s before requesting another link.`;
+    return;
+  }
+
+  $("#loginBtn").disabled = true;
+  $("#loginMessage").textContent = "Sending your secure sign-in link…";
+
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: window.location.origin,
+      shouldCreateUser: true
+    }
   });
-  if (error) alert(error.message);
+
+  if (error) {
+    $("#loginMessage").textContent = error.message;
+    $("#loginBtn").disabled = false;
+    return;
+  }
+
+  sessionStorage.setItem("magic_link_sent_at", String(Date.now()));
+  $("#loginMessage").textContent = "Check your email. Click the sign-in link to return to the dashboard.";
+  $("#loginBtn").disabled = false;
 };
+
+$("#emailInput").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") $("#loginBtn").click();
+});
 
 $("#logoutBtn").onclick = async () => {
   await supabase?.auth.signOut();
+  $("#emailInput").value = "";
+  $("#loginMessage").textContent = "";
 };
 
 $("#chooseBtn").onclick = () => $("#fileInput").click();
@@ -351,14 +392,14 @@ $("#runBtn").onclick = async () => {
   if (!state.rows.length) return;
   const count = state.rows.length;
 
-  // Anonymous: client-side rolling 72-hour quota. Google-authenticated/paid users: server-side quota.
+  // Anonymous: client-side rolling 72-hour quota. Email-authenticated/paid users: server-side quota.
   if (!state.session?.access_token) {
     const key = "usa_validator_anonymous_usage_v1";
     const now = Date.now();
     const prior = JSON.parse(localStorage.getItem(key) || "[]").filter(x => now - x.ts < 72*3600*1000);
     const used = prior.reduce((s,x) => s+x.count,0);
     if (used + count > 50) {
-      return alert(`Anonymous users can process 50 emails total in a rolling 72-hour window. Used: ${used}. Please sign in with Google for the 200-email free tier.`);
+      return alert(`Anonymous users can process 50 emails total in a rolling 72-hour window. Used: ${used}. Please sign in by email for the 200-email free tier.`);
     }
     prior.push({ ts:now, count });
     localStorage.setItem(key, JSON.stringify(prior));
