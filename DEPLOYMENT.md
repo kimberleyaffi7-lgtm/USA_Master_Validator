@@ -1,65 +1,118 @@
-# Render Deployment — Non-Technical Checklist
+# Deployment — Email Magic Link
 
-## A. Supabase
+## 1. Supabase
 
-- [ ] Create a Supabase project.
-- [ ] Copy Project URL.
-- [ ] Copy anon/public key.
-- [ ] Run `supabase-schema.sql`.
-- [ ] Enable Google provider.
-- [ ] Configure Google OAuth credentials.
-- [ ] Add Render URL to Supabase redirect URLs.
+### Authentication
 
-## B. GitHub
+Go to:
 
-- [ ] Create a new GitHub repository.
-- [ ] Upload all project files.
-- [ ] Do not upload `.env`.
-- [ ] Confirm `.env` is ignored.
+Authentication → Sign In / Providers → Email
 
-## C. Render
+Enable email/passwordless authentication.
 
-Create a Web Service.
+This app uses Magic Links.
 
-Build:
-`npm ci && npm run build`
+### URL Configuration
 
-Start:
+Go to:
+
+Authentication → URL Configuration
+
+Set:
+
+Site URL:
+`https://YOUR-RENDER-APP.onrender.com`
+
+Add:
+
+`https://YOUR-RENDER-APP.onrender.com/**`
+
+Replace the hostname with your actual Render hostname.
+
+### Database
+
+Open SQL Editor and run:
+
+`supabase-schema.sql`
+
+## 2. Email delivery
+
+For initial testing, Supabase's default email service may work only for authorized/team addresses and is heavily rate limited.
+
+For a public app, configure a custom SMTP provider:
+
+Authentication → Emails → SMTP Settings
+
+You will need:
+- SMTP host
+- SMTP port
+- SMTP username
+- SMTP password
+- sender email
+- sender name
+
+These settings are stored in Supabase Auth, not in your frontend source code.
+
+## 3. Render
+
+Root Directory:
+leave blank
+
+Build Command:
+`npm install && npm run build`
+
+Start Command:
 `npm start`
 
-Environment:
+Environment Variables:
+
 `SUPABASE_URL`
 `SUPABASE_ANON_KEY`
 `VITE_SUPABASE_URL`
 `VITE_SUPABASE_ANON_KEY`
 
-Optional:
-`MAX_FILE_MB=25`
+Use your Supabase Project URL and public Publishable/anon-compatible key.
 
-## D. First test
+Do NOT add:
+`SUPABASE_SERVICE_ROLE_KEY`
+unless a future backend feature explicitly requires it.
+
+Do NOT put any secret in a `VITE_*` variable.
+
+## 4. Test
+
+After deployment:
 
 1. Open the Render URL.
-2. Upload a tiny CSV with 5–10 rows.
-3. Confirm mapping.
-4. Run validation.
-5. Confirm charts.
-6. Export Excel.
-7. Sign in with Google.
-8. Confirm plan changes to Free.
-9. Confirm remaining credits show 200.
-10. Test a small authenticated upload.
+2. Confirm Anonymous appears.
+3. Enter your email.
+4. Click "Email me a sign-in link".
+5. Open the email.
+6. Click the Magic Link.
+7. Confirm the dashboard returns authenticated.
+8. Confirm Plan = free.
+9. Confirm Email credits = 200.
+10. Upload a small test CSV.
+11. Validate it.
+12. Sign out.
+13. Confirm Anonymous returns with 50 credits.
 
-## E. Paid plan activation
+## 5. Common errors
 
-Do not manually expose a plan selector to customers.
+### "Email address not authorized"
 
-Your billing webhook should update:
+You are using Supabase's default SMTP service. Configure custom SMTP for public addresses.
 
-`public.profiles.plan`
+### "Redirect URL not allowed"
 
-Allowed values:
-- `free`
-- `supreme`
-- `premier`
+Add the exact Render URL under:
 
-The database function enforces the paid monthly limits.
+Authentication → URL Configuration → Redirect URLs
+
+### Magic link arrives but dashboard does not authenticate
+
+Make sure the Render URL is the same origin being passed as `emailRedirectTo`.
+
+### User authenticates but quota is wrong
+
+Run `supabase-schema.sql` again and confirm the `profiles` trigger and RLS policies exist.
