@@ -16,8 +16,18 @@ const cfg = await fetch("/api/config").then(r => r.json()).catch(() => ({
 
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
+const appUrl = (
+  import.meta.env.VITE_APP_URL || window.location.origin
+).replace(/\/$/, "");
+
 const supabase = supabaseUrl && supabaseAnonKey
-  ? createClient(supabaseUrl, supabaseAnonKey)
+  ? createClient(supabaseUrl, supabaseAnonKey, {
+      auth: {
+        autoRefreshToken: true,
+        persistSession: true,
+        detectSessionInUrl: true
+      }
+    })
   : null;
 
 const state = {
@@ -57,15 +67,70 @@ document.querySelector("#app").innerHTML = `
     <div class="card"><span>Max file</span><strong>${cfg.maxFileMb} MB</strong></div>
   </section>
 
+  <section id="guestPanel" class="card access-panel guest-panel">
+    <div class="access-icon">GUEST</div>
+    <div>
+      <h2>Anonymous validation</h2>
+      <p class="muted">You can validate up to <strong>50 emails</strong> in a rolling 72-hour window without creating an account.</p>
+    </div>
+    <div class="access-note">Sign in by email to unlock the 200-email Free tier.</div>
+  </section>
+
+  <section id="memberPanel" class="card access-panel member-panel hidden">
+    <div class="member-top">
+      <div>
+        <div class="eyebrow">AUTHENTICATED ACCOUNT</div>
+        <h2>Welcome back, <span id="memberName">Member</span></h2>
+        <p id="memberEmail" class="muted">—</p>
+      </div>
+      <span id="memberPlanBadge" class="plan-badge">FREE</span>
+    </div>
+    <div class="member-grid">
+      <div>
+        <span class="label">Remaining credits</span>
+        <strong id="memberCredits">200</strong>
+      </div>
+      <div>
+        <span class="label">Usage window</span>
+        <strong id="memberWindow">24 hours</strong>
+      </div>
+      <div>
+        <span class="label">Account status</span>
+        <strong class="status-good">Authenticated</strong>
+      </div>
+    </div>
+    <div class="quota-track"><div id="memberQuotaBar"></div></div>
+    <div class="member-actions">
+      <span id="memberPlanHelp" class="muted small">Your Free account is protected by server-side quota enforcement.</span>
+      <button id="memberSignOut" class="btn secondary">Sign out</button>
+    </div>
+  </section>
+
   <section class="card upload-card">
     <div id="dropZone" class="dropzone">
       <div class="upload-icon">↑</div>
       <h2>Upload CSV or Excel</h2>
       <p>Files are processed locally in your browser. They are not uploaded to the server.</p>
-      <p class="small muted">Sign in by email for the 200-email Free tier.</p>
+      <p id="uploadHint" class="small muted">Anonymous mode • 50 emails in a rolling 72-hour window.</p>
       <input id="fileInput" type="file" accept=".csv,.xlsx,.xls" hidden>
       <button id="chooseBtn" class="btn primary">Choose File</button>
       <div id="fileInfo" class="muted small"></div>
+    </div>
+  </section>
+
+  <section id="memberFeatures" class="card feature-panel hidden">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">MEMBER FEATURES</div>
+        <h2>Authenticated processing</h2>
+        <p class="muted">Your account unlocks the higher Free quota. Paid plans use the same secure account system.</p>
+      </div>
+    </div>
+    <div class="feature-grid">
+      <div><b>200</b><span>Free emails / 24h</span></div>
+      <div><b>25,000</b><span>Supreme / month</span></div>
+      <div><b>50,000</b><span>Premier / month</span></div>
+      <div><b>Local</b><span>File processing</span></div>
     </div>
   </section>
 
@@ -125,31 +190,95 @@ const $ = (s) => document.querySelector(s);
 function setAccount(account) {
   state.account = account;
   const authenticated = !!account?.authenticated;
-  $("#accountStatus").textContent = authenticated
-    ? (account.user?.name || account.user?.email || "Email user")
-    : "Anonymous";
-  $("#loginBtn").classList.toggle("hidden", authenticated);
-  $("#logoutBtn").classList.toggle("hidden", !authenticated);
-
   const planName = authenticated ? account.plan : "anonymous";
-  const quota = account.quota || { limit: 50, used: 0, remaining: 50, windowHours: 72 };
-  $("#plan").textContent = planName === "anonymous" ? "Anonymous" : planName;
-  $("#credits").textContent = quota.remaining.toLocaleString();
-  $("#window").textContent = quota.windowHours === 720 ? "Monthly" : `${quota.windowHours} hours`;
-}
+  const quota = account.quota || {
+    limit: authenticated ? 200 : 50,
+    used: 0,
+    remaining: authenticated ? 200 : 50,
+    windowHours: authenticated ? 24 : 72
+  };
 
+  $("#accountStatus").textContent = authenticated
+    ? (account.user?.name || account.user?.email || "Authenticated user")
+    : "Anonymous";
+
+  $("#magicLogin").classList.toggle("hidden", authenticated);
+  $("#logoutBtn").classList.toggle("hidden", !authenticated);
+  $("#guestPanel").classList.toggle("hidden", authenticated);
+  $("#memberPanel").classList.toggle("hidden", !authenticated);
+  $("#memberFeatures").classList.toggle("hidden", !authenticated);
+
+  if (authenticated) {
+    const name = account.user?.name || "Member";
+    const email = account.user?.email || "";
+    const planLabel = planName === "supreme" ? "SUPREME" :
+      planName === "premier" ? "PREMIER" : "FREE";
+
+    $("#memberName").textContent = name;
+    $("#memberEmail").textContent = email;
+    $("#memberPlanBadge").textContent = planLabel;
+    $("#memberCredits").textContent = quota.remaining.toLocaleString();
+    $("#memberWindow").textContent = quota.windowHours === 720 ? "Monthly" : `${quota.windowHours} hours`;
+
+    const limit = Math.max(1, Number(quota.limit || 200));
+    const used = Math.max(0, Number(quota.used || 0));
+    const usedPct = Math.min(100, Math.round((used / limit) * 100));
+    $("#memberQuotaBar").style.width = `${usedPct}%`;
+
+    $("#memberPlanHelp").textContent =
+      planName === "free"
+        ? "Free authenticated account • 200 emails in a rolling 24-hour window."
+        : `${planLabel} account • ${limit.toLocaleString()} email credits per monthly period.`;
+  }
+
+  $("#plan").textContent = planName === "anonymous"
+    ? "Anonymous"
+    : planName.charAt(0).toUpperCase() + planName.slice(1);
+
+  $("#credits").textContent = quota.remaining.toLocaleString();
+  $("#window").textContent = quota.windowHours === 720
+    ? "Monthly"
+    : `${quota.windowHours} hours`;
+
+  const uploadHint = document.querySelector("#uploadHint");
+  if (uploadHint) {
+    uploadHint.textContent = authenticated
+      ? `Authenticated ${planName} account • ${quota.remaining.toLocaleString()} email credits remaining.`
+      : "Anonymous mode • 50 emails in a rolling 72-hour window.";
+  }
+}
 async function refreshAccount() {
   if (!state.session?.access_token) {
     setAccount({ authenticated: false, plan: "anonymous", quota: { limit: 50, used: 0, remaining: 50, windowHours: 72 } });
     return;
   }
-  const r = await fetch("/api/me", { headers: { Authorization: `Bearer ${state.session.access_token}` } });
-  if (r.ok) setAccount(await r.json());
+  const r = await fetch("/api/me", {
+    headers: { Authorization: `Bearer ${state.session.access_token}` }
+  });
+  if (r.ok) {
+    setAccount(await r.json());
+  } else {
+    await supabase?.auth.signOut();
+    setAccount({
+      authenticated: false,
+      plan: "anonymous",
+      quota: { limit: 50, used: 0, remaining: 50, windowHours: 72 }
+    });
+  }
 }
 
 if (supabase) {
   supabase.auth.onAuthStateChange((_event, session) => {
     state.session = session;
+
+    if (session && window.location.hash) {
+      window.history.replaceState(
+        {},
+        document.title,
+        window.location.pathname + window.location.search
+      );
+    }
+
     refreshAccount();
   });
   const { data } = await supabase.auth.getSession();
@@ -184,7 +313,7 @@ $("#loginBtn").onclick = async () => {
   const { error } = await supabase.auth.signInWithOtp({
     email,
     options: {
-      emailRedirectTo: window.location.origin,
+      emailRedirectTo: appUrl,
       shouldCreateUser: true
     }
   });
@@ -204,11 +333,20 @@ $("#emailInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") $("#loginBtn").click();
 });
 
-$("#logoutBtn").onclick = async () => {
+const signOut = async () => {
   await supabase?.auth.signOut();
+  state.session = null;
+  setAccount({
+    authenticated: false,
+    plan: "anonymous",
+    quota: { limit: 50, used: 0, remaining: 50, windowHours: 72 }
+  });
   $("#emailInput").value = "";
   $("#loginMessage").textContent = "";
 };
+
+$("#logoutBtn").onclick = signOut;
+$("#memberSignOut").onclick = signOut;
 
 $("#chooseBtn").onclick = () => $("#fileInput").click();
 $("#dropZone").addEventListener("dragover", e => { e.preventDefault(); $("#dropZone").classList.add("drag"); });
