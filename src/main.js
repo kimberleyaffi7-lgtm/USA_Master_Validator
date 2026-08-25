@@ -135,7 +135,7 @@ document.querySelector("#app").innerHTML = `
   </section>
 
   <section id="mapper" class="card hidden">
-    <div class="section-head"><div><h2>1. Map columns</h2><p class="muted">Auto-detected where possible. Bypass fields you do not have.</p></div></div>
+    <div class="section-head"><div><h2>1. Map columns</h2><p class="muted">Headers are auto-detected from CSV/XLS/XLSX files. CSV delimiters, BOMs, extra title rows and common header variations are supported. Bypass fields you do not have.</p></div></div>
     <div class="map-grid" id="mapGrid"></div>
     <div class="toggle-grid">
       <label><input id="geo" type="checkbox" checked> ZIP / geographic check</label>
@@ -362,42 +362,330 @@ $("#fileInput").onchange = () => {
   if (f) loadFile(f);
 };
 
+function normalizeHeader(value) {
+  return String(value ?? "")
+    .replace(/^\uFEFF/, "")
+    .normalize("NFKC")
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, " and ")
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function displayHeader(value, index) {
+  const clean = String(value ?? "")
+    .replace(/^\uFEFF/, "")
+    .normalize("NFKC")
+    .trim();
+  return clean || `Column ${index + 1}`;
+}
+
+const HEADER_ALIASES = {
+  email: [
+    "email", "email address", "e mail", "e mail address",
+    "emailaddress", "email id", "emailid", "mail", "mail address",
+    "primary email", "contact email"
+  ],
+  state: [
+    "state", "state code", "state abbreviation", "state abbr",
+    "state name", "province", "st", "us state"
+  ],
+  city: [
+    "city", "city name", "town", "municipality", "locality"
+  ],
+  zip: [
+    "zip", "zip code", "zipcode", "postal code", "postal",
+    "zip5", "zip 5", "zip plus 4", "zip plus four", "postcode", "pin"
+  ],
+  phone: [
+    "phone", "phone number", "telephone", "telephone number",
+    "mobile", "mobile number", "cell", "cell phone", "cellphone",
+    "contact number", "phone no", "phone num"
+  ],
+  ssn: [
+    "ssn", "social security", "social security number",
+    "social security no", "social security num", "ssn number"
+  ],
+  dl: [
+    "driver license", "drivers license", "driver s license",
+    "drivers licence", "driver licence", "driving license",
+    "driving licence", "license", "licence", "license number",
+    "dl", "dl number", "driver id", "drivers id"
+  ],
+  routing: [
+    "routing", "routing number", "routing no", "routing num",
+    "aba", "aba number", "aba routing", "routing transit",
+    "routing transit number", "bank routing"
+  ],
+  bank: [
+    "bank account", "bank account number", "account number",
+    "account no", "account num", "acct", "acct number",
+    "bank acct", "bank account no"
+  ]
+};
+
+const HEADER_WEIGHTS = {
+  email: 100, state: 90, city: 90, zip: 95, phone: 95,
+  ssn: 100, dl: 90, routing: 100, bank: 95
+};
+
+function aliasScore(header, alias) {
+  if (!header || !alias) return 0;
+  if (header === alias) return 100;
+  if (header.replace(/\s/g, "") === alias.replace(/\s/g, "")) return 96;
+  if (header.includes(alias)) return 82;
+  return 0;
+}
+
+function scoreHeaderForField(header, key) {
+  const h = normalizeHeader(header);
+  if (!h) return 0;
+  let best = 0;
+  for (const alias of HEADER_ALIASES[key]) {
+    best = Math.max(best, aliasScore(h, normalizeHeader(alias)));
+  }
+
+  // Prevent short aliases such as "st", "dl", or "pin" from matching
+  // unrelated words.
+  if (["st", "dl", "pin"].includes(h)) {
+    return best;
+  }
+
+  return best;
+}
+
+function valueLooksLikeEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(String(value ?? "").trim());
+}
+
+function valueLooksLikeZip(value) {
+  const s = String(value ?? "").trim().replace(/\s/g, "");
+  return /^\d{5}(-\d{4})?$/.test(s);
+}
+
+function valueLooksLikePhone(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.length === 10 || (digits.length === 11 && digits.startsWith("1"));
+}
+
+function valueLooksLikeState(value) {
+  const s = String(value ?? "").trim().toUpperCase().replace(/\s+/g, "_");
+  return Boolean(STATE_MAP[s]) || (s.length === 2 && /^[A-Z]{2}$/.test(s));
+}
+
+function valueLooksLikeSSN(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.length === 9;
+}
+
+function valueLooksLikeRouting(value) {
+  const digits = String(value ?? "").replace(/\D/g, "");
+  return digits.length === 9;
+}
+
+function sampleColumnScore(rows, index, detector) {
+  const sample = rows.slice(0, Math.min(rows.length, 40));
+  let nonEmpty = 0;
+  let matches = 0;
+  for (const row of sample) {
+    const value = row?.[index];
+    if (String(value ?? "").trim() === "") continue;
+    nonEmpty++;
+    if (detector(value)) matches++;
+  }
+  if (!nonEmpty) return 0;
+  return matches / nonEmpty;
+}
+
+function inferFieldFromValues(rows, key) {
+  const detector = {
+    email: valueLooksLikeEmail,
+    state: valueLooksLikeState,
+    zip: valueLooksLikeZip,
+    phone: valueLooksLikePhone,
+    ssn: valueLooksLikeSSN,
+    routing: valueLooksLikeRouting
+  }[key];
+
+  if (!detector) return -1;
+
+  let bestIndex = -1;
+  let bestScore = 0;
+  const width = Math.max(...rows.map(r => r?.length || 0), 0);
+
+  for (let i = 0; i < width; i++) {
+    const score = sampleColumnScore(rows, i, detector);
+    if (score >= 0.70 && score > bestScore) {
+      bestScore = score;
+      bestIndex = i;
+    }
+  }
+  return bestIndex;
+}
+
+function findHeaderRow(rows) {
+  const scanLimit = Math.min(rows.length, 15);
+  let bestRow = 0;
+  let bestScore = -1;
+
+  for (let r = 0; r < scanLimit; r++) {
+    const row = rows[r] || [];
+    let score = 0;
+    for (const cell of row) {
+      const h = normalizeHeader(cell);
+      if (!h) continue;
+      for (const key of Object.keys(HEADER_ALIASES)) {
+        const s = scoreHeaderForField(h, key);
+        if (s >= 82) {
+          score += HEADER_WEIGHTS[key];
+          break;
+        }
+      }
+    }
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestRow = r;
+    }
+  }
+
+  // If a recognizable header row exists, use it. Otherwise keep row 0.
+  return bestScore >= 82 ? bestRow : 0;
+}
+
+function prepareRows(rawRows) {
+  const cleaned = (rawRows || [])
+    .map(row => Array.isArray(row)
+      ? row.map(v => String(v ?? "").replace(/^\uFEFF/, "").trim())
+      : [])
+    .filter(row => row.some(v => v !== ""));
+
+  if (cleaned.length < 2) {
+    throw new Error("The file must contain a header row and at least one data row.");
+  }
+
+  const headerRowIndex = findHeaderRow(cleaned);
+  const headerRow = cleaned[headerRowIndex];
+  const maxWidth = Math.max(
+    headerRow.length,
+    ...cleaned.slice(headerRowIndex + 1).map(r => r.length)
+  );
+
+  const headers = Array.from({ length: maxWidth }, (_, i) => displayHeader(headerRow[i], i));
+
+  const dataRows = cleaned
+    .slice(headerRowIndex + 1)
+    .map(row => Array.from({ length: maxWidth }, (_, i) => row[i] ?? ""))
+    .filter(row => row.some(v => String(v).trim() !== ""));
+
+  return { headers, rows: dataRows, headerRowIndex };
+}
+
+async function parseCsvFile(file) {
+  const parsed = await new Promise((resolve, reject) => Papa.parse(file, {
+    complete: resolve,
+    error: reject,
+    skipEmptyLines: "greedy",
+    delimiter: "",
+    dynamicTyping: false,
+    transform: value => String(value ?? "").replace(/^\uFEFF/, "")
+  }));
+
+  if (parsed.errors?.length) {
+    const serious = parsed.errors.filter(e => e.code !== "UndetectableDelimiter");
+    if (serious.length) {
+      console.warn("CSV parser warnings:", serious);
+    }
+  }
+
+  return {
+    rows: parsed.data,
+    delimiter: parsed.meta?.delimiter || ","
+  };
+}
+
 async function loadFile(file) {
   if (file.size > cfg.maxFileMb * 1024 * 1024) {
     return alert(`File is too large. Maximum is ${cfg.maxFileMb} MB.`);
   }
-  if (!/\.(csv|xlsx|xls)$/i.test(file.name)) return alert("Please choose a CSV, XLSX or XLS file.");
+
+  if (!/\.(csv|xlsx|xls)$/i.test(file.name)) {
+    return alert("Please choose a CSV, XLSX or XLS file.");
+  }
 
   try {
-    let rows;
+    let rawRows;
+    let sourceInfo = "";
+
     if (/\.csv$/i.test(file.name)) {
-      const parsed = await new Promise((resolve, reject) => Papa.parse(file, {
-        complete: resolve, error: reject, skipEmptyLines: "greedy"
-      }));
-      rows = parsed.data;
+      const parsed = await parseCsvFile(file);
+      rawRows = parsed.rows;
+      sourceInfo = parsed.delimiter === "\t"
+        ? "TSV/tab-delimited"
+        : `CSV (${parsed.delimiter} separated)`;
     } else {
       const buf = await file.arrayBuffer();
-      const wb = XLSX.read(buf, { type: "array", cellDates: true, raw: false });
-      rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: "", raw: false });
-    }
-    if (!rows?.length || rows.length < 2) return alert("The file must contain a header row and at least one data row.");
+      const wb = XLSX.read(buf, {
+        type: "array",
+        cellDates: true,
+        raw: false,
+        dense: true
+      });
 
-    state.headers = rows[0].map((x, i) => String(x || `Column ${i + 1}`).trim());
-    state.rows = rows.slice(1).filter(r => r.some(v => String(v ?? "").trim() !== ""));
+      if (!wb.SheetNames.length) {
+        throw new Error("The workbook does not contain a worksheet.");
+      }
+
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      rawRows = XLSX.utils.sheet_to_json(sheet, {
+        header: 1,
+        defval: "",
+        raw: false,
+        blankrows: false
+      });
+      sourceInfo = `Excel • ${wb.SheetNames[0]}`;
+    }
+
+    const prepared = prepareRows(rawRows);
+    state.headers = prepared.headers;
+    state.rows = prepared.rows;
+
     const limit = state.account?.authenticated
-      ? (state.account.plan === "supreme" ? 25000 : state.account.plan === "premier" ? 50000 : 200)
+      ? (state.account.plan === "supreme"
+        ? 25000
+        : state.account.plan === "premier"
+          ? 50000
+          : 200)
       : 50;
 
     if (state.rows.length > limit) {
-      return alert(`This upload contains ${state.rows.length.toLocaleString()} rows, but your current plan allows ${limit.toLocaleString()} emails for this upload.`);
+      return alert(
+        `This upload contains ${state.rows.length.toLocaleString()} rows, ` +
+        `but your current plan allows ${limit.toLocaleString()} emails for this upload.`
+      );
     }
 
-    $("#fileInfo").textContent = `${file.name} • ${state.rows.length.toLocaleString()} data rows`;
+    $("#fileInfo").textContent =
+      `${file.name} • ${state.rows.length.toLocaleString()} data rows • ${sourceInfo}`;
+
     buildMapper();
     $("#mapper").classList.remove("hidden");
+
+    const detected = getDetectedMappings();
+    const detectedCount = Object.values(detected).filter(i => i >= 0).length;
+
+    if (detectedCount === 0) {
+      $("#progressText").textContent =
+        "No standard headers were recognized. Please map the required fields manually.";
+    }
   } catch (err) {
     console.error(err);
-    alert("Could not read the file. Please check that it is a valid CSV/XLS/XLSX file.");
+    alert(
+      err?.message ||
+      "Could not read the file. Please check that it is a valid CSV/XLS/XLSX file."
+    );
   }
 }
 
@@ -406,32 +694,74 @@ const fieldDefs = [
   ["ssn","SSN"],["dl","Driver License"],["routing","Routing / ABA"],["bank","Bank Account"]
 ];
 
+function getDetectedMappings() {
+  const result = {};
+  const used = new Set();
+
+  for (const [key] of fieldDefs) {
+    let bestIndex = -1;
+    let bestScore = 0;
+
+    state.headers.forEach((header, index) => {
+      if (used.has(index)) return;
+      const score = scoreHeaderForField(header, key);
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    });
+
+    // If no header label was recognized, infer common fields from values.
+    if (bestIndex < 0 || bestScore < 82) {
+      const inferred = inferFieldFromValues(state.rows, key);
+      if (inferred >= 0 && !used.has(inferred)) {
+        bestIndex = inferred;
+        bestScore = 70;
+      }
+    }
+
+    if (bestIndex >= 0 && bestScore >= 70) {
+      result[key] = bestIndex;
+      used.add(bestIndex);
+    } else {
+      result[key] = -1;
+    }
+  }
+
+  return result;
+}
+
 function buildMapper() {
   const grid = $("#mapGrid");
   grid.innerHTML = "";
+
+  const detected = getDetectedMappings();
+
   for (const [key, label] of fieldDefs) {
     const wrap = document.createElement("label");
     wrap.innerHTML = `<span>${label}</span><select data-map="${key}"><option value="-1">— Bypass —</option></select>`;
+
     const select = wrap.querySelector("select");
-    state.headers.forEach((h, i) => {
+
+    state.headers.forEach((header, index) => {
       const opt = document.createElement("option");
-      opt.value = i; opt.textContent = h;
-      if (detectHeader(h, key)) opt.selected = true;
+      opt.value = index;
+      opt.textContent = header;
       select.appendChild(opt);
     });
+
+    if (detected[key] !== undefined && detected[key] >= 0) {
+      select.value = String(detected[key]);
+    }
+
     grid.appendChild(wrap);
   }
 }
 
 function detectHeader(h, key) {
-  const s = h.toLowerCase();
-  const map = {
-    email:["email","mail"], state:["state","st"], city:["city","town"], zip:["zip","postal","pin"],
-    phone:["phone","mobile","cell","tele"], ssn:["ssn","social"], dl:["license","dl","driving"],
-    routing:["routing","aba","transit"], bank:["account","bank","acct"]
-  };
-  return map[key].some(x => s.includes(x));
+  return scoreHeaderForField(h, key) >= 82;
 }
+
 
 const AREA_CODES = {
   "201":"NJ","202":"DC","203":"CT","205":"AL","206":"WA","207":"ME","208":"ID","209":"CA","210":"TX",
