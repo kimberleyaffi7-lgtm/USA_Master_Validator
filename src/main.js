@@ -141,9 +141,13 @@ document.querySelector("#app").innerHTML = `
       <label><input id="geo" type="checkbox" checked> ZIP / geographic check</label>
       <label><input id="mx" type="checkbox" checked> Email DNS MX check</label>
       <label><input id="spam" type="checkbox" checked> Disposable email check</label>
-      <label><input id="phone" type="checkbox" checked> Phone area-code check</label>
-      <label><input id="identity" type="checkbox"> SSN/DL format checks</label>
-      <label><input id="finance" type="checkbox"> Bank/routing format checks</label>
+      <label id="phoneFeature" class="paid-feature-control"><input id="phone" type="checkbox" checked> Phone area-code check <span class="feature-lock">PAID</span></label>
+      <label id="identityFeature" class="paid-feature-control"><input id="identity" type="checkbox" checked> SSN / DL format checks <span class="feature-lock">PAID</span></label>
+      <label id="financeFeature" class="paid-feature-control"><input id="finance" type="checkbox" checked> Bank / routing format checks <span class="feature-lock">PAID</span></label>
+    </div>
+    <div id="paidFeatureNotice" class="paid-feature-notice">
+      <strong>Premium validation is locked.</strong> Phone area-code, SSN/DL, and bank/routing checks are available exclusively on Supreme and Premier.
+      <button id="upgradeBtn" type="button" class="btn small-btn">View paid plans</button>
     </div>
     <button id="runBtn" class="btn primary wide">Run Validation</button>
     <div id="progressWrap" class="hidden">
@@ -164,6 +168,24 @@ document.querySelector("#app").innerHTML = `
     <div class="card chart-card"><h3>Top email domains</h3><canvas id="pieChart"></canvas></div>
   </section>
 
+  <section id="brainPanel" class="card brain-panel">
+    <div class="section-head">
+      <div>
+        <div class="eyebrow">BRAIN MODULES</div>
+        <h2>Validation Intelligence</h2>
+        <p class="muted">Paid-plan intelligence is designed to use the server-side Brain gateway. Provider API keys are never exposed to the browser.</p>
+      </div>
+      <span id="brainBadge" class="plan-badge">PAID FEATURE</span>
+    </div>
+    <div class="brain-grid">
+      <div><b>Ask My Results</b><span>Explain patterns, failures and trust-score changes.</span></div>
+      <div><b>AI Reports</b><span>Turn validation output into an actionable summary.</span></div>
+      <div><b>Knowledge Vault</b><span>Future RAG layer for private customer rules and SOPs.</span></div>
+      <div><b>Provider Router</b><span>LimitDeck • NEXUS API • Router Cheap.</span></div>
+    </div>
+    <div id="brainLock" class="brain-lock">Brain/RAG tools are reserved for paid plans. Core validation remains available to Free users.</div>
+  </section>
+
   <section class="card">
     <div class="section-head"><div><h2>Export</h2><p class="muted">Select domains to export validated rows as Excel.</p></div></div>
     <div id="domains" class="domain-list"><div class="muted">No processed data yet.</div></div>
@@ -173,19 +195,61 @@ document.querySelector("#app").innerHTML = `
   <section class="card plans">
     <h2>Plans</h2>
     <div class="grid plan-grid">
-      <div><b>Anonymous</b><span>50 emails / rolling 72 hours</span></div>
-      <div><b>Free + Email</b><span>200 emails / rolling 24 hours</span></div>
-      <div><b>Supreme</b><span>25,000 email credits / month</span></div>
-      <div><b>Premier</b><span>50,000 email credits / month</span></div>
+      <div><b>Anonymous</b><span>50 emails / rolling 72 hours</span><small>Core validation</small></div>
+      <div><b>Free + Email</b><span>200 emails / rolling 24 hours</span><small>Core validation</small></div>
+      <div class="paid-plan-card"><b>Supreme</b><span>25,000 email credits / month</span><small>+ Premium validation + AI/RAG-ready Brain</small></div>
+      <div class="paid-plan-card"><b>Premier</b><span>50,000 email credits / month</span><small>+ Premium validation + Advanced Brain/RAG</small></div>
     </div>
-    <p class="muted small">Paid plan assignment is server-side. Connect your billing provider later without changing the validation engine.</p>
+    <p class="muted small">Paid features are controlled by the server-side plan returned from Supabase. The browser cannot promote a Free account to a paid plan.</p>
   </section>
 
-  <footer class="muted small footer">USA Validator • Render-ready • v26</footer>
+  <footer class="muted small footer">USA Validator • Render-ready • v27 • Paid validation + Brain-ready architecture</footer>
 </div>
 `;
 
 const $ = (s) => document.querySelector(s);
+
+function applyBrainAccess() {
+  const paid = isPaidPlan(state.account?.plan);
+  const lock = $("#brainLock");
+  const badge = $("#brainBadge");
+  if (!lock || !badge) return;
+  lock.classList.toggle("hidden", paid);
+  badge.textContent = paid ? `${state.account.plan.toUpperCase()} BRAIN` : "PAID FEATURE";
+}
+
+function isPaidPlan(plan) {
+  return plan === "supreme" || plan === "premier";
+}
+
+function applyPaidFeatureLocks() {
+  const paid = isPaidPlan(state.account?.plan);
+  const controls = [
+    ["#phone", "#phoneFeature"],
+    ["#identity", "#identityFeature"],
+    ["#finance", "#financeFeature"]
+  ];
+
+  controls.forEach(([inputSelector, wrapperSelector]) => {
+    const input = $(inputSelector);
+    const wrapper = $(wrapperSelector);
+    if (!input || !wrapper) return;
+    input.disabled = !paid;
+    wrapper.classList.toggle("locked", !paid);
+    wrapper.classList.toggle("unlocked", paid);
+    if (!paid) input.checked = false;
+  });
+
+  const notice = $("#paidFeatureNotice");
+  if (notice) {
+    notice.classList.toggle("hidden", paid);
+    notice.innerHTML = paid
+      ? `<strong>${state.account.plan.toUpperCase()} premium validation unlocked.</strong> Phone area-code, SSN/DL and bank/routing format checks are available.`
+      : `<strong>Premium validation is locked.</strong> Phone area-code, SSN/DL, and bank/routing checks are available exclusively on Supreme and Premier. <button id="upgradeBtn" type="button" class="btn small-btn">View paid plans</button>`;
+    const btn = $("#upgradeBtn");
+    if (btn) btn.onclick = () => document.querySelector(".plans")?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }
+}
 
 function setAccount(account) {
   state.account = account;
@@ -239,6 +303,9 @@ function setAccount(account) {
   $("#window").textContent = quota.windowHours === 720
     ? "Monthly"
     : `${quota.windowHours} hours`;
+
+  applyPaidFeatureLocks();
+  applyBrainAccess();
 
   const uploadHint = document.querySelector("#uploadHint");
   if (uploadHint) {
@@ -763,43 +830,7 @@ function detectHeader(h, key) {
 }
 
 
-const AREA_CODES = {
-  "201":"NJ","202":"DC","203":"CT","205":"AL","206":"WA","207":"ME","208":"ID","209":"CA","210":"TX",
-  "212":"NY","213":"CA","214":"TX","215":"PA","216":"OH","217":"IL","218":"MN","219":"IN","220":"OH",
-  "223":"PA","224":"IL","225":"LA","228":"MS","229":"GA","231":"MI","234":"OH","239":"FL","240":"MD",
-  "248":"MI","251":"AL","252":"NC","253":"WA","254":"TX","256":"AL","260":"IN","262":"WI","267":"PA",
-  "269":"MI","270":"KY","272":"NC","276":"VA","279":"CA","301":"MD","302":"DE","303":"CO","304":"WV",
-  "305":"FL","307":"WY","308":"NE","309":"IL","310":"CA","312":"IL","313":"MI","314":"MO","315":"NY",
-  "316":"KS","317":"IN","318":"LA","319":"IA","320":"MN","321":"FL","323":"CA","325":"TX","330":"OH",
-  "331":"IL","334":"AL","336":"NC","337":"LA","339":"MA","341":"CA","346":"TX","347":"NY","351":"MA",
-  "352":"FL","360":"WA","361":"TX","364":"KY","380":"OH","385":"UT","386":"FL","401":"RI","402":"NE",
-  "404":"GA","405":"OK","406":"MT","407":"FL","408":"CA","409":"TX","410":"MD","412":"PA","413":"MA",
-  "414":"WI","415":"CA","417":"MO","419":"OH","423":"TN","424":"CA","425":"WA","430":"TX","432":"TX",
-  "434":"VA","435":"UT","440":"OH","442":"CA","443":"MD","458":"OR","463":"IN","469":"TX","470":"GA",
-  "475":"CT","478":"GA","479":"AR","480":"AZ","484":"PA","501":"AR","502":"KY","503":"OR","504":"LA",
-  "505":"NM","507":"MN","508":"MA","509":"WA","510":"CA","512":"TX","513":"OH","515":"IA","516":"NY",
-  "517":"MI","518":"NY","520":"AZ","530":"CA","531":"NE","534":"WI","539":"WI","540":"VA","541":"OR",
-  "551":"NJ","559":"CA","561":"FL","562":"CA","563":"IA","564":"WA","567":"OH","570":"PA","571":"VA",
-  "573":"MO","574":"IN","575":"NM","580":"OK","585":"NY","586":"MI","601":"MS","602":"AZ","603":"NH",
-  "605":"SD","606":"KY","607":"NY","608":"WI","609":"NJ","610":"PA","612":"MN","614":"OH","615":"TN",
-  "616":"MI","617":"MA","618":"IL","619":"CA","620":"KS","623":"AZ","626":"CA","628":"CA","629":"TN",
-  "630":"IL","631":"NY","636":"MO","641":"IA","646":"NY","650":"CA","651":"MN","657":"CA","660":"MO",
-  "661":"CA","662":"MS","667":"MD","669":"CA","678":"GA","681":"WV","682":"TX","701":"ND","702":"NV",
-  "703":"VA","704":"NC","706":"GA","707":"CA","708":"IL","712":"IA","713":"TX","714":"CA","715":"WI",
-  "716":"NY","717":"PA","718":"NY","719":"CO","720":"CO","724":"PA","725":"NV","727":"FL","731":"TN",
-  "732":"NJ","734":"MI","737":"TX","740":"OH","747":"CA","754":"FL","757":"VA","760":"CA","762":"GA",
-  "763":"MN","765":"IN","769":"MS","770":"GA","772":"FL","773":"IL","774":"MA","775":"NV","779":"IL",
-  "781":"MA","785":"KS","786":"FL","801":"UT","802":"VT","803":"SC","804":"VA","805":"CA","806":"TX",
-  "808":"HI","810":"MI","812":"IN","813":"FL","814":"PA","815":"IL","816":"MO","817":"TX","818":"CA",
-  "820":"CA","828":"NC","830":"TX","831":"CA","832":"TX","843":"SC","845":"NY","847":"IL","848":"NJ",
-  "850":"FL","854":"SC","856":"NJ","857":"AZ","858":"CA","859":"KY","860":"CT","862":"NJ","863":"FL",
-  "864":"SC","865":"TN","870":"AR","872":"IL","878":"PA","901":"TN","903":"TX","904":"FL","906":"MI",
-  "907":"AK","908":"NJ","909":"CA","910":"NC","912":"GA","913":"KS","914":"NY","915":"TX","916":"CA",
-  "917":"NY","918":"OK","919":"NC","920":"WI","925":"CA","928":"AZ","929":"NY","930":"CA","931":"TN",
-  "934":"CA","936":"TX","937":"OH","938":"AL","940":"TX","941":"FL","947":"MI","949":"CA","951":"CA",
-  "952":"MN","954":"FL","956":"TX","959":"CT","970":"CO","971":"OR","972":"TX","973":"NJ","978":"MA",
-  "979":"TX","980":"NC","984":"NC","985":"LA","986":"WA","989":"MI"
-};
+
 
 const STATE_MAP = {
   ALABAMA:"AL",ALASKA:"AK",ARIZONA:"AZ",ARKANSAS:"AR",CALIFORNIA:"CA",COLORADO:"CO",CONNECTICUT:"CT",
@@ -815,17 +846,7 @@ const STATE_MAP = {
 const DISPOSABLE = new Set(["mailinator.com","10minutemail.com","guerrillamail.com","tempmail.com","yopmail.com","trashmail.com","sharklasers.com","spam4.me","dropmail.me","nada.ltd"]);
 const caches = { mx:new Map(), zip:new Map() };
 
-function routingValid(v) {
-  const c = String(v).replace(/\D/g,"");
-  if (c.length !== 9) return false;
-  let n = 0;
-  for (let i=0;i<9;i+=3) n += Number(c[i])*3 + Number(c[i+1])*7 + Number(c[i+2]);
-  return n !== 0 && n % 10 === 0;
-}
-function ssnFormatValid(v) {
-  const c = String(v).replace(/\D/g,"");
-  return c.length === 9 && !/^(000|666|9\d{2})/.test(c) && !/^\d{3}00\d{4}$/.test(c) && !/^\d{5}0000$/.test(c);
-}
+
 function val(row, key) {
   const sel = document.querySelector(`[data-map="${key}"]`);
   const i = Number(sel?.value ?? -1);
@@ -856,6 +877,25 @@ async function zipInfo(zip) {
   } catch { return null; }
 }
 
+let premiumEngine = null;
+let premiumEngineUrl = null;
+
+async function ensurePremiumEngine() {
+  if (!isPaidPlan(state.account?.plan)) return null;
+  if (premiumEngine) return premiumEngine;
+  if (!state.session?.access_token) throw new Error("Authentication required for premium validation.");
+
+  const response = await fetch("/api/premium-engine", {
+    headers: { Authorization: `Bearer ${state.session.access_token}` }
+  });
+  if (!response.ok) throw new Error("Premium validation engine is not available for this account.");
+
+  const source = await response.text();
+  premiumEngineUrl = URL.createObjectURL(new Blob([source], { type: "text/javascript" }));
+  premiumEngine = await import(/* @vite-ignore */ premiumEngineUrl);
+  return premiumEngine;
+}
+
 $("#runBtn").onclick = async () => {
   if (!state.rows.length) return;
   const count = state.rows.length;
@@ -867,7 +907,7 @@ $("#runBtn").onclick = async () => {
     const prior = JSON.parse(localStorage.getItem(key) || "[]").filter(x => now - x.ts < 72*3600*1000);
     const used = prior.reduce((s,x) => s+x.count,0);
     if (used + count > 50) {
-      return alert(`Anonymous users can process 50 emails total in a rolling 72-hour window. Used: ${used}. Please sign in by email for the 200-email free tier.`);
+      return alert(`Anonymous users can process 50 emails total in a rolling 72-hour window. Used: ${used}. Please sign in by email for the 200-email free tier. Premium validation remains a paid-only feature.`);
     }
     prior.push({ ts:now, count });
     localStorage.setItem(key, JSON.stringify(prior));
@@ -881,6 +921,15 @@ $("#runBtn").onclick = async () => {
     if (!r.ok) return alert(j.error || "Quota check failed.");
   }
 
+  const paid = isPaidPlan(state.account?.plan);
+  if (paid) {
+    try {
+      await ensurePremiumEngine();
+    } catch (error) {
+      return alert(error?.message || "Premium validation is temporarily unavailable.");
+    }
+  }
+
   $("#runBtn").disabled = true;
   $("#progressWrap").classList.remove("hidden");
   state.processed = [];
@@ -888,8 +937,9 @@ $("#runBtn").onclick = async () => {
   let issues = 0, scores = [];
 
   const config = {
-    geo: $("#geo").checked, mx: $("#mx").checked, spam: $("#spam").checked,
-    phone: $("#phone").checked, identity: $("#identity").checked, finance: $("#finance").checked
+    geo: $("#geo").checked,
+    mx: $("#mx").checked,
+    spam: $("#spam").checked
   };
 
   for (let i=0;i<count;i++) {
@@ -963,17 +1013,20 @@ async function validateRow(row, config) {
     }
   }
 
-  if (config.identity) {
-    const ssn = val(row,"ssn");
-    if (ssn && !ssnFormatValid(ssn)) { issues.push("Invalid SSN format"); score -= 50; }
-    const dl = val(row,"dl").replace(/[^a-z0-9]/gi,"");
-    if (dl && (dl.length < 5 || dl.length > 20)) { issues.push("Invalid DL format"); score -= 20; }
-  }
-  if (config.finance) {
-    const routing = val(row,"routing");
-    if (routing && !routingValid(routing)) { issues.push("ABA checksum failed"); score -= 50; }
-    const bank = val(row,"bank").replace(/\D/g,"");
-    if (bank && (bank.length < 4 || bank.length > 17)) { issues.push("Invalid bank account length"); score -= 20; }
+  if (premiumEngine) {
+    const premium = premiumEngine.runPremiumChecks({
+      phone: val(row, "phone"),
+      ssn: val(row, "ssn"),
+      dl: val(row, "dl"),
+      routing: val(row, "routing"),
+      bank: val(row, "bank"),
+      state: st,
+      phoneAreaCheck: $("#phone").checked,
+      identityCheck: $("#identity").checked,
+      financeCheck: $("#finance").checked
+    });
+    issues.push(...premium.issues);
+    score -= premium.penalty;
   }
 
   score = Math.max(0, score);
